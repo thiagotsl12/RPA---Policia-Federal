@@ -4,7 +4,7 @@ import json
 import re
 
 
-def analyze_document(file_path, model_id, endpoint="", key=""):
+def analyze_document(file_path, model_id, endpoint="https://projetotouchless.cognitiveservices.azure.com/", key="5b995d2fb12d4933b7bc4e2b87e8a9f7"):
     document_analysis_client = DocumentAnalysisClient(
         endpoint=endpoint, credential=AzureKeyCredential(key)
     )

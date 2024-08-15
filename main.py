@@ -1,32 +1,27 @@
-from azure.core.credentials import AzureKeyCredential
-from azure.ai.formrecognizer import DocumentAnalysisClient
-import json
 import re
 import os
-
+from dotenv import load_dotenv
+import mapeamentoPais
 from chamadaDocIntelligence import analyze_document
 from ObtemPais import obter_pais_por_cidade
 from formularioPF import preencheForms
 
 def main():
-
     diretorio_pdf = "C:\\Deloitte\\RPA - Policia Federal\\Documentos\\RE_Document Inteligence\\"
     arquivos_pdf = [f for f in os.listdir(diretorio_pdf) if f.endswith('.pdf')]
 
     for pdf_file in arquivos_pdf:
         file_path = os.path.join(diretorio_pdf, pdf_file)
-        #print(file_path)
-        nome_arquivo = os.path.splitext(pdf_file)[0]  # Utiliza o nome do arquivo sem extensão como model_id
-        #print(nome_arquivo)
-        if 'passaporte' in str(nome_arquivo).lower():
+        nome_arquivo = os.path.splitext(pdf_file)[0]
+
+        if 'passaporte' in nome_arquivo.lower():
             model_id = "RPAPOLICIAFEDERAL"
-        elif 'pedido' in str(nome_arquivo).lower():
-            model_id = "RPAPOLICIAFEDERALPEDVISTO"
-        elif 'visto' in str(nome_arquivo).lower():
-            model_id = "FieldsVisto"    
+        elif 'pedido' in nome_arquivo.lower():
+            model_id = "RPAPOLICIAFEDERALPEDVISTO2"
+        elif 'visto' in nome_arquivo.lower():
+            model_id = "FieldsVisto2"
 
         result = analyze_document(file_path, model_id)
-
         field_values = {}
 
         def store_field_values(analysis_result):
@@ -34,20 +29,17 @@ def main():
                 if isinstance(field["value"], list):
                     field_values[field["name"]] = []
                     for item in field["value"]:
-                        item_values = {}
-                        for key, val in item.items():
-                            item_values[key] = val
+                        item_values = {key: val for key, val in item.items()}
                         field_values[field["name"]].append(item_values)
                 else:
                     field_values[field["name"]] = field["value"]
 
         store_field_values(result)
 
-        
         field_value_str = str(field_values)
-        #print(field_value_str)
+        print(field_value_str)
 
-        if model_id == "RPAPOLICIAFEDERALPEDVISTO":
+        if model_id == "RPAPOLICIAFEDERALPEDVISTO2":
             nome = re.search(r'(?<=NOME\':\s\').*(?=\',\s\'SEXO)', field_value_str).group(0)
             print(nome)
             sexo = re.search(r'(?<=SEXO\':\s\').*(?=\',\s\'NASCIDO EM)', field_value_str).group(0)
@@ -60,23 +52,50 @@ def main():
             print(pai)
             mae = re.search(r'(?<=MAE\':\s\').*(?=\',\s\'ESTADO CIVIL)', field_value_str).group(0)
             print(mae)
-            estado_civil = re.search(r'(?<=ESTADO CIVIL\':\s\').*(?=\'\}\])', field_value_str).group(0)
+            estado_civil = re.search(r'(?<=ESTADO CIVIL\':\s\').*(?=\',\s\'Data nascimento)', field_value_str).group(0)
             print(estado_civil)
-        elif model_id == "RPAPOLICIAFEDERAL":
-            dt_nascimento = re.search(r'(?<=Date of birth\':\s\').*(?=\',\s\'Sex)', field_value_str).group(0)
+            if re.search(r'\(a\)', estado_civil):
+                estado_civil = re.search(r'\w+(?=\()', estado_civil).group(0)
+                print(estado_civil)
+            dt_nascimento = re.search(r'(?<=Data nascimento\':\s\').*(?=\',\s\'Pais expedidor)', field_value_str).group(0)
             print(dt_nascimento)
+            pais_expedidor = re.search(r'(?<=Pais expedidor\':\s\').*(?=\'\}\])', field_value_str).group(0)
+            print(pais_expedidor)
+            pais_expedidor = mapeamentoPais.obter_pais_com_acento(pais_expedidor)
+            print(pais_expedidor)
+
+        elif model_id == "RPAPOLICIAFEDERAL":
             numero_passaporte = re.search(r'(?<=Passaport number\':\s\').*(?=\'\}\])', field_value_str).group(0)
             print(numero_passaporte)
-            pais_expedidor = re.search(r'(?<=authority\':\s\').*(?=\',\s\'Type)', field_value_str).group(0)
-            print(pais_expedidor)
-        elif model_id == "FieldsVisto":
+
+        elif model_id == "FieldsVisto2":
             dt_concessao = re.search(r'(?<=DATA CONCESSAO\':\s\').*(?=\',\s\'CIDADE)', field_value_str).group(0)
             print(dt_concessao)
-            cidade = re.search(r'(?<=CIDADE\':\s\').*(?=\'\}\])', field_value_str).group(0)
+            numero_visto = re.search(r'(?<=numero visto\':\s\').*(?=\'\}\])', field_value_str).group(0)
+            print(numero_visto)
+
+            meses = {
+                "JAN": "01", "FEV": "02", "FEB": "02", "MAR": "03",
+                "ABR": "04", "APR": "04", "MAI": "05", "MAY": "05",
+                "JUN": "06", "JUL": "07", "AGO": "08", "AUG": "08",
+                "SET": "09", "SEP": "09", "OUT": "10", "OCT": "10",
+                "NOV": "11", "DEZ": "12", "DEC": "12"
+            }
+
+            match = re.search(r"(\d{2})\s([A-Z]{3})\/([A-Z]{3})\s(\d{4})", dt_concessao.upper())
+
+            if match:
+                dia = match.group(1)
+                mes_abr = match.group(2)
+                ano = match.group(4)
+                mes = meses[mes_abr]
+                dt_concessao = f"{dia}/{mes}/{ano}"
+                print(dt_concessao)
+
+            cidade = re.search(r'(?<=CIDADE\':\s\').*(?=\',\s\'numero visto)', field_value_str).group(0)
             print(cidade)
 
-
-    cidade_nasc = re.search(r'(.*(?=\,\s\w+\,))', nascido_em).group(0)
+    cidade_nasc = re.search(r'^[^,]+', nascido_em).group(0)
     print(cidade_nasc)
     pais_nasc = re.search(r'[^,]*$', nascido_em).group(0).strip()
     print(pais_nasc)
@@ -84,20 +103,34 @@ def main():
     print(sobrenome)
     nome = re.search(r'\w+(?=\s)', nome).group(0).strip()
     print(nome)
-    pais = obter_pais_por_cidade(cidade, sua_chave_api)
+
+    pais = obter_pais_por_cidade(cidade, key_pais)
     if pais:
         print(pais)
-    pais_passaporte = obter_pais_por_cidade(pais_expedidor, sua_chave_api)
+    pais_passaporte = obter_pais_por_cidade(pais_expedidor, key_pais)
     if pais_expedidor:
         print(pais_expedidor)
 
+    if pais == "Estados Unidos da América":
+        pais = "Estados Unidos"
+        print(pais)
 
-    formulario = preencheForms(cidade_nasc, pais_nasc, nome, sobrenome, sexo, nascido_em, nacionalidade, pai, mae, 
-                               estado_civil,dt_nascimento, numero_passaporte, pais_passaporte, dt_concessao, cidade, pais)        
-    if formulario:
-        print(formulario)
+        while True:
+            try:
+                formulario = preencheForms(
+                    cidade_nasc, pais_nasc, nome, sobrenome, sexo, nascido_em, nacionalidade, pai, mae,
+                    estado_civil, dt_nascimento, numero_passaporte, pais_passaporte, dt_concessao,
+                    cidade, pais, numero_visto, pais_expedidor
+                )
+                if formulario:
+                    print(formulario)
+                    
+                # Se o código foi executado com sucesso, sair do loop
+                break
 
+            except Exception as e:
+                print(f"Ocorreu um erro: {e}. Reiniciando o processo...")
 
 if __name__ == "__main__":
-    sua_chave_api = ""
+    key_pais = os.getenv("KEY_PAIS")
     main()
